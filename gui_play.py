@@ -42,19 +42,20 @@ class BeteGoGUI:
         self.cfg = cfg
 
         self.device = get_device(cfg.device)
+        
+        # Build UI first so status_var is available for status updates during model load
+        self.selected_square: int | None = None
+        self.legal_targets_from_selected: set[int] = set()
+        self.lock = threading.Lock()
+        self.engine_thinking = False
+        self.orientation_white_bottom = True
+        self.board = chess.Board()
+        self._build_ui()
+
+        # Now load model and set up MCTS
         self.model = self._load_model(cfg.model_path)
         self.mcts = MCTS(self.model, self.device, MCTSConfig(num_simulations=cfg.sims))
 
-        self.board = chess.Board()
-        self.orientation_white_bottom = True
-
-        self.selected_square: int | None = None
-        self.legal_targets_from_selected: set[int] = set()
-
-        self.lock = threading.Lock()
-        self.engine_thinking = False
-
-        self._build_ui()
         self._draw_board()
         self._maybe_engine_move()
 
