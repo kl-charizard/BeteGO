@@ -81,7 +81,7 @@ class BeteGoGUI:
         self.canvas.grid(row=0, column=0, sticky='nsew')
         self.canvas.bind('<Button-1>', self._on_canvas_click)
         self.canvas.focus_set()
-        self.canvas.lift()
+        self.canvas.tkraise()
 
         # Controls frame
         ctrl = tk.Frame(self.root)
