@@ -79,6 +79,14 @@ class MCTS:
             visits = np.zeros(POLICY_SIZE, dtype=np.float32)
             return visits, []
 
+        # Fast path: if only one legal move, skip simulations
+        if sum(1 for _ in root.board.legal_moves) == 1:
+            visits = np.zeros(POLICY_SIZE, dtype=np.float32)
+            only_move = next(iter(root.board.legal_moves))
+            a = policy_index_from_move(root.board, only_move)
+            visits[a] = 1.0
+            return visits, [a]
+
         # Initial expansion
         p, v = self._infer(root.board)
         root.expand(p)

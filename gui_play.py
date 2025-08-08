@@ -30,7 +30,7 @@ MOVE_COLOR = '#CC0000'
 class GUIConfig:
     square_size: int = 72
     margin: int = 16
-    sims: int = 256
+    sims: int = 64
     device: str = 'auto'
     model_path: str = 'checkpoints/latest.pt'
     play_as_white: bool = True
@@ -293,16 +293,20 @@ class BeteGoGUI:
         try:
             with self.lock:
                 board_copy = self.board.copy()
-            visits, _ = self.mcts.run(board_copy)
-            action = int(visits.argmax())
-            chosen = None
-            for mv in board_copy.legal_moves:
-                if policy_index_from_move(board_copy, mv) == action:
-                    chosen = mv
-                    break
-            if chosen is None:
-                # Fallback: pick the most visited legal if mapping failed, else first legal
-                chosen = next(iter(board_copy.legal_moves))
+            legal_moves_list = list(board_copy.legal_moves)
+            if len(legal_moves_list) == 1:
+                chosen = legal_moves_list[0]
+            else:
+                visits, _ = self.mcts.run(board_copy)
+                action = int(visits.argmax())
+                chosen = None
+                for mv in legal_moves_list:
+                    if policy_index_from_move(board_copy, mv) == action:
+                        chosen = mv
+                        break
+                if chosen is None:
+                    # Fallback: pick first legal
+                    chosen = legal_moves_list[0]
         except Exception as e:
             self.root.after(0, lambda: self._set_status(f"Engine error: {e}"))
             with self.lock:
