@@ -80,6 +80,8 @@ class BeteGoGUI:
         self.canvas = tk.Canvas(self.root, width=total, height=total, bg='white', highlightthickness=0)
         self.canvas.grid(row=0, column=0, sticky='nsew')
         self.canvas.bind('<Button-1>', self._on_canvas_click)
+        self.canvas.focus_set()
+        self.canvas.lift()
 
         # Controls frame
         ctrl = tk.Frame(self.root)
@@ -144,6 +146,7 @@ class BeteGoGUI:
 
     def _on_canvas_click(self, event) -> None:
         try:
+            print(f"Click at: {event.x},{event.y}")
             if self.engine_thinking:
                 self._set_status("Please wait: engine is thinking...")
                 return
@@ -166,7 +169,7 @@ class BeteGoGUI:
                     if piece is not None and piece.color == human_white:
                         self.selected_square = sq
                         self.legal_targets_from_selected = self._legal_targets_from(sq)
-                        self._set_status("Select a destination square")
+                        self._set_status(f"Selected: {chr(ord('a')+chess.square_file(sq))}{chess.square_rank(sq)+1}. Choose destination")
                         self._draw_board()
                     else:
                         self._set_status("Select one of your pieces")
@@ -211,7 +214,9 @@ class BeteGoGUI:
                         if piece is not None and piece.color == human_white:
                             self.selected_square = sq
                             self.legal_targets_from_selected = self._legal_targets_from(sq)
-                            self._set_status("Select a destination square")
+                            f = chess.square_file(sq)
+                            r = chess.square_rank(sq)
+                            self._set_status(f"Selected: {chr(ord('a')+f)}{r+1}. Choose destination")
                             self._draw_board()
                         else:
                             self._set_status("Illegal move; try another square")
@@ -309,10 +314,8 @@ class BeteGoGUI:
 
     def _coords_to_square(self, x: int, y: int) -> int | None:
         s = self.cfg.square_size
-        file_idx = x // s
-        rank_idx = y // s
-        if file_idx < 0 or file_idx > 7 or rank_idx < 0 or rank_idx > 7:
-            return None
+        file_idx = max(0, min(7, x // s))
+        rank_idx = max(0, min(7, y // s))
         if self.orientation_white_bottom:
             file = file_idx
             rank = 7 - rank_idx
@@ -352,7 +355,7 @@ class BeteGoGUI:
                 tf, tr = self._square_to_coords(tgt)
                 cx = tf * s + s // 2
                 cy = tr * s + s // 2
-                self.canvas.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill=HIGHLIGHT_COLOR, outline='')
+                self.canvas.create_oval(cx - 12, cy - 12, cx + 12, cy + 12, fill=HIGHLIGHT_COLOR, outline='')
 
         # Pieces
         for sq in chess.SQUARES:
