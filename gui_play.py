@@ -143,60 +143,80 @@ class BeteGoGUI:
         self.status_var.set(text)
 
     def _on_canvas_click(self, event) -> None:
-        if self.engine_thinking:
-            return
-        with self.lock:
-            if self.board.is_game_over():
+        try:
+            if self.engine_thinking:
+                self._set_status("Please wait: engine is thinking...")
                 return
-            human_white = self.cfg.play_as_white
-            if self.board.turn != human_white:
-                return
-
-            sq = self._coords_to_square(event.x, event.y)
-            if sq is None:
-                return
-
-            piece = self.board.piece_at(sq)
-            if self.selected_square is None:
-                # Select source if it's own piece
-                if piece is not None and piece.color == human_white:
-                    self.selected_square = sq
-                    self.legal_targets_from_selected = self._legal_targets_from(sq)
-                    self._draw_board()
-            else:
-                # Try to move
-                if sq == self.selected_square:
-                    # Deselect
-                    self.selected_square = None
-                    self.legal_targets_from_selected.clear()
-                    self._draw_board()
+            with self.lock:
+                if self.board.is_game_over():
+                    self._show_result()
+                    return
+                human_white = self.cfg.play_as_white
+                if self.board.turn != human_white:
+                    self._set_status("Not your turn yet")
                     return
 
-                mv = self._find_move(self.selected_square, sq)
-                if mv is not None:
-                    # Handle promotion (default to queen)
-                    if chess.square_rank(mv.to_square) in (0, 7) and self.board.piece_at(self.selected_square).piece_type == chess.PAWN and mv.promotion is None:
-                        promo = self._ask_promotion(self.board.turn)
-                        if promo is None:
-                            return
-                        mv = chess.Move(mv.from_square, mv.to_square, promotion=promo)
+                sq = self._coords_to_square(event.x, event.y)
+                if sq is None:
+                    return
 
-                    self.board.push(mv)
-                    self.selected_square = None
-                    self.legal_targets_from_selected.clear()
-                    self._draw_board()
-
-                    # Engine move if game not over
-                    self._maybe_engine_move()
-                else:
-                    # If clicked on own piece instead, switch selection
+                piece = self.board.piece_at(sq)
+                if self.selected_square is None:
+                    # Select source if it's own piece
                     if piece is not None and piece.color == human_white:
                         self.selected_square = sq
                         self.legal_targets_from_selected = self._legal_targets_from(sq)
+                        self._set_status("Select a destination square")
                         self._draw_board()
                     else:
-                        # Invalid target
-                        pass
+                        self._set_status("Select one of your pieces")
+                else:
+                    # Try to move
+                    if sq == self.selected_square:
+                        # Deselect
+                        self.selected_square = None
+                        self.legal_targets_from_selected.clear()
+                        self._set_status("Selection cleared")
+                        self._draw_board()
+                        return
+
+                    # Build a candidate move
+                    src_piece = self.board.piece_at(self.selected_square)
+                    mv = self._find_move(self.selected_square, sq)
+
+                    # Handle promotion robustly: if a pawn moves to last rank, ask
+                    if src_piece and src_piece.piece_type == chess.PAWN and chess.square_rank(sq) in (0, 7):
+                        promo = self._ask_promotion(self.board.turn)
+                        if promo is None:
+                            self._set_status("Promotion cancelled")
+                            return
+                        mv_candidate = chess.Move(self.selected_square, sq, promotion=promo)
+                        if mv_candidate in self.board.legal_moves:
+                            mv = mv_candidate
+                        else:
+                            # Fallback to any legal (should not happen)
+                            self._set_status("Chosen promotion not legal; using default")
+
+                    if mv is not None and mv in self.board.legal_moves:
+                        self.board.push(mv)
+                        self.selected_square = None
+                        self.legal_targets_from_selected.clear()
+                        self._draw_board()
+                        self._set_status("Engine's turn")
+
+                        # Engine move if game not over
+                        self._maybe_engine_move()
+                    else:
+                        # If clicked on own piece instead, switch selection
+                        if piece is not None and piece.color == human_white:
+                            self.selected_square = sq
+                            self.legal_targets_from_selected = self._legal_targets_from(sq)
+                            self._set_status("Select a destination square")
+                            self._draw_board()
+                        else:
+                            self._set_status("Illegal move; try another square")
+        except Exception as e:
+            self._set_status(f"Error: {e}")
 
     def _ask_promotion(self, white_to_move: bool) -> int | None:
         # Simple popup for promotion piece
@@ -257,6 +277,7 @@ class BeteGoGUI:
                     chosen = mv
                     break
             if chosen is None:
+                # Fallback: pick the most visited legal if mapping failed, else first legal
                 chosen = next(iter(board_copy.legal_moves))
         except Exception as e:
             self.root.after(0, lambda: self._set_status(f"Engine error: {e}"))
