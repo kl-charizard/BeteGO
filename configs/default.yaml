@@ -1,0 +1,31 @@
+# Default training configuration for BeteGo
+
+device: auto  # auto/mps/cuda/cpu
+seed: 42
+
+self_play:
+  games_per_iteration: 1
+  num_simulations: 16
+  cpuct: 1.5
+  dirichlet_alpha: 0.30
+  dirichlet_epsilon: 0.25
+  temperature_initial: 1.0
+  temperature_moves: 8
+  resign_threshold: null
+
+network:
+  channels: 64
+  residual_blocks: 3
+  policy_head_channels: 16
+  value_head_channels: 16
+
+training:
+  batch_size: 32
+  lr: 0.001
+  weight_decay: 0.0001
+  epochs: 1
+  replay_buffer_size: 5000
+  value_loss_weight: 1.0
+  policy_loss_weight: 1.0
+  checkpoint_dir: checkpoints
+  save_every_iterations: 1 
