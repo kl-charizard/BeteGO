@@ -149,76 +149,92 @@ class BeteGoGUI:
             if self.engine_thinking:
                 self._set_status("Please wait: engine is thinking...")
                 return
+            status_after: str | None = None
+            redraw_after = False
+            trigger_engine = False
+
             with self.lock:
                 if self.board.is_game_over():
-                    self._show_result()
-                    return
-                human_white = self.cfg.play_as_white
-                if self.board.turn != human_white:
-                    self._set_status("Not your turn yet")
-                    return
-
-                sq = self._coords_to_square(event.x, event.y)
-                if sq is None:
-                    return
-
-                piece = self.board.piece_at(sq)
-                if self.selected_square is None:
-                    # Select source if it's own piece
-                    if piece is not None and piece.color == human_white:
-                        self.selected_square = sq
-                        self.legal_targets_from_selected = self._legal_targets_from(sq)
-                        self._set_status(f"Selected: {chr(ord('a')+chess.square_file(sq))}{chess.square_rank(sq)+1}. Choose destination")
-                        self._draw_board()
-                    else:
-                        self._set_status("Select one of your pieces")
+                    # show result outside lock
+                    pass
                 else:
-                    # Try to move
-                    if sq == self.selected_square:
-                        # Deselect
-                        self.selected_square = None
-                        self.legal_targets_from_selected.clear()
-                        self._set_status("Selection cleared")
-                        self._draw_board()
-                        return
-
-                    # Build a candidate move
-                    src_piece = self.board.piece_at(self.selected_square)
-                    mv = self._find_move(self.selected_square, sq)
-
-                    # Handle promotion robustly: if a pawn moves to last rank, ask
-                    if src_piece and src_piece.piece_type == chess.PAWN and chess.square_rank(sq) in (0, 7):
-                        promo = self._ask_promotion(self.board.turn)
-                        if promo is None:
-                            self._set_status("Promotion cancelled")
-                            return
-                        mv_candidate = chess.Move(self.selected_square, sq, promotion=promo)
-                        if mv_candidate in self.board.legal_moves:
-                            mv = mv_candidate
-                        else:
-                            # Fallback to any legal (should not happen)
-                            self._set_status("Chosen promotion not legal; using default")
-
-                    if mv is not None and mv in self.board.legal_moves:
-                        self.board.push(mv)
-                        self.selected_square = None
-                        self.legal_targets_from_selected.clear()
-                        self._draw_board()
-                        self._set_status("Engine's turn")
-
-                        # Engine move if game not over
-                        self._maybe_engine_move()
+                    human_white = self.cfg.play_as_white
+                    if self.board.turn != human_white:
+                        status_after = "Not your turn yet"
                     else:
-                        # If clicked on own piece instead, switch selection
-                        if piece is not None and piece.color == human_white:
-                            self.selected_square = sq
-                            self.legal_targets_from_selected = self._legal_targets_from(sq)
-                            f = chess.square_file(sq)
-                            r = chess.square_rank(sq)
-                            self._set_status(f"Selected: {chr(ord('a')+f)}{r+1}. Choose destination")
-                            self._draw_board()
-                        else:
-                            self._set_status("Illegal move; try another square")
+                        sq = self._coords_to_square(event.x, event.y)
+                        if sq is not None:
+                            piece = self.board.piece_at(sq)
+                            if self.selected_square is None:
+                                if piece is not None and piece.color == human_white:
+                                    self.selected_square = sq
+                                    self.legal_targets_from_selected = self._legal_targets_from(sq)
+                                    f = chess.square_file(sq)
+                                    r = chess.square_rank(sq)
+                                    status_after = f"Selected: {chr(ord('a')+f)}{r+1}. Choose destination"
+                                    redraw_after = True
+                                else:
+                                    status_after = "Select one of your pieces"
+                            else:
+                                if sq == self.selected_square:
+                                    self.selected_square = None
+                                    self.legal_targets_from_selected.clear()
+                                    status_after = "Selection cleared"
+                                    redraw_after = True
+                                else:
+                                    src_piece = self.board.piece_at(self.selected_square)
+                                    mv = self._find_move(self.selected_square, sq)
+                                    if src_piece and src_piece.piece_type == chess.PAWN and chess.square_rank(sq) in (0, 7):
+                                        # Defer promotion dialog outside lock by marking needed info
+                                        pass
+                                    # Handle promotion inside lock by prompting outside; simplified: try legal mv first
+                                    if mv is not None and mv in self.board.legal_moves:
+                                        # Push move
+                                        # If it is a pawn reaching last rank without promotion flag, default promotion prompt outside lock
+                                        needs_promo = (
+                                            src_piece is not None and src_piece.piece_type == chess.PAWN and chess.square_rank(sq) in (0, 7) and mv.promotion is None
+                                        )
+                                        if needs_promo:
+                                            # We cannot show dialog while holding lock; defer handling
+                                            pass
+                                        # For now, if needs_promo, we won't push here; handle outside
+                                    # End lock
+            # Outside lock region: handle actions that may block/UI
+            with self.lock:
+                human_white = self.cfg.play_as_white
+                if not self.board.is_game_over():
+                    sq = self._coords_to_square(event.x, event.y)
+                    if self.board.turn == human_white and sq is not None:
+                        if self.selected_square is not None and sq != self.selected_square:
+                            src_piece = self.board.piece_at(self.selected_square)
+                            mv = self._find_move(self.selected_square, sq)
+                            if src_piece and src_piece.piece_type == chess.PAWN and chess.square_rank(sq) in (0, 7):
+                                promo = self._ask_promotion(self.board.turn)
+                                if promo is None:
+                                    status_after = status_after or "Promotion cancelled"
+                                else:
+                                    mv_candidate = chess.Move(self.selected_square, sq, promotion=promo)
+                                    if mv_candidate in self.board.legal_moves:
+                                        mv = mv_candidate
+                            if mv is not None and mv in self.board.legal_moves:
+                                self.board.push(mv)
+                                self.selected_square = None
+                                self.legal_targets_from_selected.clear()
+                                redraw_after = True
+                                status_after = "Engine's turn"
+                                trigger_engine = True
+                            elif status_after is None:
+                                # Keep prior status if set
+                                status_after = "Illegal move; try another square"
+
+            if redraw_after:
+                self._draw_board()
+            if status_after:
+                self._set_status(status_after)
+            if trigger_engine:
+                self._maybe_engine_move()
+            if self.board.is_game_over():
+                self._show_result()
         except Exception as e:
             self._set_status(f"Error: {e}")
 
@@ -266,6 +282,10 @@ class BeteGoGUI:
             self.engine_thinking = True
 
         self._set_status("Engine thinking...")
+        try:
+            self.root.config(cursor='watch')
+        except Exception:
+            pass
         t = threading.Thread(target=self._engine_move_thread, daemon=True)
         t.start()
 
@@ -287,18 +307,25 @@ class BeteGoGUI:
             self.root.after(0, lambda: self._set_status(f"Engine error: {e}"))
             with self.lock:
                 self.engine_thinking = False
+            self.root.after(0, lambda: self.root.config(cursor=''))
             return
 
         def apply_move():
-            with self.lock:
-                if chosen in self.board.legal_moves:
-                    self.board.push(chosen)
-                self.engine_thinking = False
-            self._draw_board()
-            if self.board.is_game_over():
-                self._show_result()
-            else:
-                self._set_status("Your move")
+            try:
+                with self.lock:
+                    if chosen in self.board.legal_moves:
+                        self.board.push(chosen)
+                    self.engine_thinking = False
+                self._draw_board()
+                if self.board.is_game_over():
+                    self._show_result()
+                else:
+                    self._set_status("Your move")
+            finally:
+                try:
+                    self.root.config(cursor='')
+                except Exception:
+                    pass
 
         self.root.after(0, apply_move)
 
